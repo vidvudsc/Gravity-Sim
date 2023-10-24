@@ -147,7 +147,7 @@ int main() {
         }
 
         if (selectedParticle) {
-            DrawText(TextFormat("Speed: %.2f km/s", Vector2Length(selectedParticle->velocity)), GetScreenWidth() - 300, 10, 20, RAYWHITE);
+            DrawText(TextFormat("Speed: %.2f km/s", Vector2Length(selectedParticle->velocity)), GetScreenWidth() - 300, 12, 20, RAYWHITE);
             DrawText(TextFormat("Mass: %.2f kg", selectedParticle->mass), GetScreenWidth() - 300, 40, 20, RAYWHITE);
             DrawText(TextFormat("Size: %.2f km", selectedParticle->radius), GetScreenWidth() - 300, 70, 20, RAYWHITE);
         }
