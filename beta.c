@@ -13,7 +13,9 @@ typedef struct Particle {
     float mass;
     float radius;
     Color color;
+    struct Particle* stuckWith;  // The particle it is stuck with, NULL if not stuck
 } Particle;
+
 
 Particle particles[NUM_PARTICLES];
 Particle* selectedParticle = NULL;
@@ -29,8 +31,8 @@ void InitializeParticles() {
         if (i == 0) {
             particles[i].position = (Vector2){GetScreenWidth() / 2, GetScreenHeight() / 2};
             particles[i].velocity = (Vector2){0, 0};
-            particles[i].radius = 100;  // Large size in km
-            particles[i].mass = particles[i].radius * 1000000;  // Large mass
+            particles[i].radius = 1;  // Large size in km
+            particles[i].mass = particles[i].radius * 10000;  // Large mass
             particles[i].color = YELLOW;  // Star color
             continue;
         }
@@ -44,22 +46,29 @@ void InitializeParticles() {
 }
 
 
-void UpdateParticles() {
+void UpdateParticles(float dt) {
     Vector2 delta, direction, forceVec;
     float distanceSquared, force, speed, invDistanceSquared;
+    float gravitationalConstant = 0.67408;  // Adjusted for the simulation
     
+    // Gravity calculations and velocity updates
     for (int i = 0; i < NUM_PARTICLES; ++i) {
         Particle *particle_i = &particles[i];
         
+        if (particle_i->mass <= 0) continue;  // Skip "dead" particles
+
         for (int j = i + 1; j < NUM_PARTICLES; ++j) {
             Particle *particle_j = &particles[j];
             
-            delta = Vector2Subtract(particle_j->position, particle_i->position);
-            distanceSquared = Vector2LengthSqr(delta); // Compute squared distance directly
-            if (distanceSquared == 0) continue;
+            if (particle_j->mass <= 0) continue;  // Skip "dead" particles
             
-            invDistanceSquared = 1.0f / distanceSquared; // Pre-calculate the inverse of the distanceSquared
-            force = particle_i->mass * particle_j->mass * invDistanceSquared;
+            delta = Vector2Subtract(particle_j->position, particle_i->position);
+            distanceSquared = Vector2LengthSqr(delta);
+
+            if (distanceSquared == 0) continue;
+
+            invDistanceSquared = 1.0f / distanceSquared;
+            force = gravitationalConstant * particle_i->mass * particle_j->mass * invDistanceSquared;
             
             direction = Vector2Normalize(delta);
             forceVec = Vector2Scale(direction, force);
@@ -67,14 +76,60 @@ void UpdateParticles() {
             Vector2 accel_i = Vector2Scale(forceVec, 1.0f / particle_i->mass);
             Vector2 accel_j = Vector2Scale(forceVec, 1.0f / particle_j->mass);
             
-            particle_i->velocity = Vector2Add(particle_i->velocity, accel_i);
-            particle_j->velocity = Vector2Subtract(particle_j->velocity, accel_j);
+            particle_i->velocity = Vector2Add(particle_i->velocity, Vector2Scale(accel_i, dt));
+            particle_j->velocity = Vector2Subtract(particle_j->velocity, Vector2Scale(accel_j, dt));
         }
         
-        particle_i->position = Vector2Add(particle_i->position, particle_i->velocity);
+        particle_i->position = Vector2Add(particle_i->position, Vector2Scale(particle_i->velocity, dt));
+
+        // Update color based on velocity
         speed = Vector2Length(particle_i->velocity);
         particle_i->color = (Color){(int)(255 * sin(0.016 * speed)), (int)(255 * sin(0.016 * speed - 2.0944)), (int)(255 * sin(0.016 * speed + 2.0944)), 255};
+    }
 
+    // Collision, sticking, and Elastic Collision logic
+    for (int i = 0; i < NUM_PARTICLES; ++i) {
+        Particle *particle_i = &particles[i];
+
+        if (particle_i->mass <= 0) continue;  // Skip "dead" particles
+
+        for (int j = i + 1; j < NUM_PARTICLES; ++j) {
+            Particle *particle_j = &particles[j];
+
+            if (particle_j->mass <= 0) continue;  // Skip "dead" particles
+
+            float distance = Vector2Distance(particle_i->position, particle_j->position);
+
+            if (distance < (particle_i->radius + particle_j->radius)) {
+                // Elastic collision logic here
+                Vector2 deltaV = Vector2Subtract(particle_i->velocity, particle_j->velocity);
+                Vector2 deltaP = Vector2Subtract(particle_i->position, particle_j->position);
+                float dotProduct = Vector2DotProduct(deltaV, deltaP);
+                
+                if (dotProduct > 0) {
+                    float collisionScale = dotProduct / Vector2LengthSqr(deltaP);
+                    Vector2 collision = Vector2Scale(deltaP, 2 * collisionScale);
+                    
+                    particle_i->velocity = Vector2Subtract(particle_i->velocity, Vector2Scale(collision, particle_j->mass / particle_i->mass));
+                    particle_j->velocity = Vector2Add(particle_j->velocity, Vector2Scale(collision, particle_i->mass / particle_j->mass));
+                }
+                
+                // Stick particles i and j together
+                particle_i->stuckWith = particle_j;
+                particle_j->stuckWith = particle_i;
+            }
+            else if (particle_i->stuckWith == particle_j || particle_j->stuckWith == particle_i) {
+                // Check if particles should unstick
+                float kineticEnergy = 0.5f * (particle_i->mass * Vector2LengthSqr(particle_i->velocity) + particle_j->mass * Vector2LengthSqr(particle_j->velocity));
+                float gravitationalPotentialEnergy = -gravitationalConstant * particle_i->mass * particle_j->mass / distance;
+
+                if (kineticEnergy > -gravitationalPotentialEnergy) {
+                    // Particles have enough energy to break apart
+                    particle_i->stuckWith = NULL;
+                    particle_j->stuckWith = NULL;
+                }
+            }
+        }
     }
 }
 
@@ -127,7 +182,8 @@ int main() {
         }
 
 
-        if (!paused) UpdateParticles();
+        if (!paused) UpdateParticles(GetFrameTime());
+
 
         if (followSelectedParticle && selectedParticle) {
             camera.target = selectedParticle->position;
