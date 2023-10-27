@@ -1,6 +1,5 @@
 ﻿2D Gravity Simulation in C using Raylib
 
- 
 Overview
 This code is a simple 2D gravity simulation using Raylib and C. It initializes a number of particles with random positions, sizes, and masses. Then, it simulates their movements based on gravity and elastic collisions.
 
