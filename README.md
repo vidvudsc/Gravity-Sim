@@ -18,9 +18,8 @@ Standard C Libraries (stdlib.h, stdio.h, math.h)
 How to Compile
 To compile the code, you can use the following command:
 
-mathematica
-Copy code
 gcc -Wall -Wextra sph.c -I C:\raylib\raylib\src -L C:\raylib\w64devkit\x86_64-w64-mingw32\lib -lraylib -lopengl32 -lgdi32 -lwinmm
+
 Code Structure
 Particle Structure
 A Particle struct is defined that contains information about each particle: position, velocity, mass, radius, color, and a name.
