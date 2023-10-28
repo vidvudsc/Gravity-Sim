@@ -38,7 +38,7 @@
             if (i == 0) {
                 particles[i].position = (Vector2){GetScreenWidth() / 2, GetScreenHeight() / 2};
                 particles[i].velocity = (Vector2){0, 0};
-                particles[i].radius = 100;  // Large size in km
+                particles[i].radius = 10;  // Large size in km
                 particles[i].mass = particles[i].radius * 1000000;  // Large mass
                 particles[i].color = YELLOW;  // Star color
                 continue;
@@ -132,6 +132,8 @@ void mergeParticles(Particle* p1, Particle* p2) {
 
 
     float dt;  // Time step
+    float totalTime = 0.0f;  // Total simulation time
+
 
     int main() {
         InitWindow(1920, 1080, "2D Gravity Simulation");
@@ -165,7 +167,7 @@ void mergeParticles(Particle* p1, Particle* p2) {
             if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
                 Vector2 mousePosScreen = GetMousePosition();
                 Vector2 mousePosWorld = GetScreenToWorld2D(mousePosScreen, camera);
-
+                
                 selectedParticle = NULL; // Reset selectedParticle
                 
                 if (followSelectedParticle) {
@@ -182,8 +184,19 @@ void mergeParticles(Particle* p1, Particle* p2) {
                 }
             }
 
-            dt = 1.0f / GetFPS();
-            if (!paused) UpdateParticles();
+
+            int fps = GetFPS();
+            if (fps != 0) {
+                dt = 1.0f / fps;
+            } else {
+                dt = 0;
+            }
+
+            if (!paused) {
+                totalTime += dt;
+                UpdateParticles();
+            }
+
 
             if (followSelectedParticle && selectedParticle) {
                 camera.target = selectedParticle->position;
@@ -206,6 +219,8 @@ void mergeParticles(Particle* p1, Particle* p2) {
             
             EndMode2D();
 
+            DrawText(TextFormat("t = %.2f s", totalTime), GetScreenWidth() - 150, GetScreenHeight() - 50, 20, RAYWHITE);
+
             
             if (showInfo) {
                 DrawFPS(10, 12);
@@ -220,6 +235,7 @@ void mergeParticles(Particle* p1, Particle* p2) {
                 DrawText(TextFormat("Size: %.2f km", selectedParticle->radius), GetScreenWidth() - 300, 70, 20, RAYWHITE);
                 DrawText(TextFormat("Name: %s", selectedParticle->name), GetScreenWidth() - 300, 100, 20, RAYWHITE); // Display name
             }
+            
 
             EndDrawing();
         }
