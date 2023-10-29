@@ -1,245 +1,180 @@
-    #include "raylib.h"
-    #include "raymath.h"
-    #include <stdlib.h>
-    #include <stdio.h>
-    #include <math.h>
+#include "raylib.h"
+#include <math.h>
+#include <stdbool.h>  // For the boolean variables
+#include <stdio.h>
 
-    #define NUM_PARTICLES 1000
-    #define G 0.07
 
-    bool followSelectedParticle = false;
+#define NUM_PARTICLES 10000
+double simTime = 0.0;  // Accumulated simulation time
 
-    #define NAME_SIZE 1600 // Maximum size for the name, including null-terminator
+typedef struct {
+    Vector2 pos;
+    float strength;
+} GravitySource;
 
-    typedef struct Particle {
-    Vector2 position;
-    Vector2 velocity;
+typedef struct {
+    Vector2 pos;
+    Vector2 vel;
     float mass;
-    float radius;
+    float density;
+    float size;
     Color color;
-    char name[NAME_SIZE]; // New field for name
-    bool active; // New field for active state
 } Particle;
 
+void renderGravitySource(GravitySource *source, Vector2 offset, float zoom) {
+    DrawCircleV((Vector2){(source->pos.x - offset.x) * zoom, (source->pos.y - offset.y) * zoom}, 10 * zoom, WHITE);
+}
 
-    Particle particles[NUM_PARTICLES];
-    Particle* selectedParticle = NULL;
+void renderParticle(Particle *particle, Vector2 offset, float zoom) {
+    float speed = sqrt(particle->vel.x * particle->vel.x + particle->vel.y * particle->vel.y);
+    particle->color = ColorFromHSV(speed, 1.0f, 1.0f);
+    
+    DrawCircleV((Vector2){(particle->pos.x - offset.x) * zoom, (particle->pos.y - offset.y) * zoom}, particle->size * zoom, particle->color);
+}
+void updatePhysics(Particle *particle, GravitySource *source, float dt) {
+    float dx = source->pos.x - particle->pos.x;
+    float dy = source->pos.y - particle->pos.y;
+    
+    float distanceSquared = dx * dx + dy * dy;
+    float distance = sqrt(distanceSquared);
+    float inverseDistance = 1.0f / distance;
+    float inverseDistanceSquared = inverseDistance * inverseDistance;
+    
+    float gravitationalForce = source->strength * particle->mass * inverseDistanceSquared;
+    
+    float ax = dx * gravitationalForce * inverseDistance;
+    float ay = dy * gravitationalForce * inverseDistance;
 
-    Vector2 cameraOffset = {0};
-    float zoom = 0.1f;  
+    float jerk_x = ax / dt;
+    float jerk_y = ay / dt;
 
-    bool paused = false;
-    bool showInfo = false;
-
-
-    void InitializeParticles() {
-        for (int i = 0; i < NUM_PARTICLES; i++) {
-            // Special case for the "star" particle at the center
-            if (i == 0) {
-                particles[i].position = (Vector2){GetScreenWidth() / 2, GetScreenHeight() / 2};
-                particles[i].velocity = (Vector2){0, 0};
-                particles[i].radius = 10;  // Large size in km
-                particles[i].mass = particles[i].radius * 1000000;  // Large mass
-                particles[i].color = YELLOW;  // Star color
-                continue;
-            }
-            particles[i].active = true; // All particles are initially active
-
-            
-            particles[i].position = (Vector2){GetRandomValue(0, GetScreenWidth()), GetRandomValue(0, GetScreenHeight())};
-            particles[i].velocity = (Vector2){0, 0};
-            particles[i].radius = GetRandomValue(1, 10); // Random size in km
-            particles[i].mass = particles[i].radius * 5500; // Assuming density is 5500 kg/km^3
-            particles[i].color = RAYWHITE; // Initial color, will change based on velocity
-            snprintf(particles[i].name, NAME_SIZE, "Particle %d", i+1); // Initialize the name
-        }
-    }
-
-void mergeParticles(Particle* p1, Particle* p2) {
-    // Calculate new position based on weighted averages
-    p1->position.x = (p1->mass * p1->position.x + p2->mass * p2->position.x) / (p1->mass + p2->mass);
-    p1->position.y = (p1->mass * p1->position.y + p2->mass * p2->position.y) / (p1->mass + p2->mass);
-
-    // Calculate new velocity based on conservation of momentum
-    p1->velocity = Vector2Add(Vector2Scale(p1->velocity, p1->mass), Vector2Scale(p2->velocity, p2->mass));
-    p1->velocity = Vector2Scale(p1->velocity, 1.0f / (p1->mass + p2->mass));
-
-    // Update mass and radius
-    p1->mass += p2->mass;
-    p1->radius = sqrt(p1->radius * p1->radius + p2->radius * p2->radius); // Hypothetical combined radius
-
-    // Deactivate the second particle
-    p2->active = false;
+    float dt_new_x = sqrt(ax / jerk_x);
+    float dt_new_y = sqrt(ay / jerk_y);
+    
+    float dt_new = fmin(dt_new_x, dt_new_y);
+    
+    particle->vel.x += ax * dt_new;
+    particle->vel.y += ay * dt_new;
+    
+    particle->pos.x += particle->vel.x * dt_new;
+    particle->pos.y += particle->vel.y * dt_new;
 }
 
 
-    void UpdateParticles() {
-        Vector2 delta, direction, forceVec;
-        float distanceSquared, force, speed, invDistanceSquared;
-        
-        for (int i = 0; i < NUM_PARTICLES; ++i) {
-            Particle *particle_i = &particles[i];
-            
-            for (int j = i + 1; j < NUM_PARTICLES; ++j) {
-                Particle *particle_j = &particles[j];
-                
-                // Gravity calculations
-                delta = Vector2Subtract(particle_j->position, particle_i->position);
-                distanceSquared = Vector2LengthSqr(delta);
-                if (distanceSquared == 0) continue;
-                
-                invDistanceSquared = 1.0f / distanceSquared;
-                force = G * particle_i->mass * particle_j->mass * invDistanceSquared;
-                
-                direction = Vector2Normalize(delta);
-                forceVec = Vector2Scale(direction, force);
-                
-                Vector2 accel_i = Vector2Scale(forceVec, 1.0f / particle_i->mass);
-                Vector2 accel_j = Vector2Scale(forceVec, 1.0f / particle_j->mass);
-                
-                particle_i->velocity = Vector2Add(particle_i->velocity, accel_i);
-                particle_j->velocity = Vector2Subtract(particle_j->velocity, accel_j);
 
-                // Elastic collision calculations
-                float distance = sqrt(distanceSquared);
-                if (distance < particle_i->radius + particle_j->radius) {
-                    Vector2 relVelocity = Vector2Subtract(particle_i->velocity, particle_j->velocity);
-                    float velAlongNormal = Vector2DotProduct(relVelocity, direction);
-                    if (particle_i->active && particle_j->active) {
-                        mergeParticles(particle_i, particle_j);
-                    }
-                    
-                    if (velAlongNormal > 0) continue;
 
-                    float e = 1.0f;  // Coefficient of restitution (elasticity)
-                    float j = -(1 + e) * velAlongNormal;
-                    j /= (1.0f / particle_i->mass) + (1.0f / particle_j->mass);
+float dt;  // Time step
 
-                    Vector2 impulse = Vector2Scale(direction, j);
-                    particle_i->velocity = Vector2Add(particle_i->velocity, Vector2Scale(impulse, 1.0f / particle_i->mass));
-                    particle_j->velocity = Vector2Subtract(particle_j->velocity, Vector2Scale(impulse, 1.0f / particle_j->mass));
-                }
-            }
-            
-            // Update positions
-            particle_i->position = Vector2Add(particle_i->position, particle_i->velocity);
-            
-            // Color particles based on velocity
-            speed = Vector2Length(particle_i->velocity);
-            particle_i->color = (Color){(int)(255 * sin(0.016 * speed)), (int)(255 * sin(0.016 * speed - 2.0944)), (int)(255 * sin(0.016 * speed + 2.0944)), 255};
-        }
+int main(void) {
+    const int screenWidth = 1920;
+    const int screenHeight = 1080;
+
+    InitWindow(screenWidth, screenHeight, "Raylib Gravity Example");
+
+    ToggleFullscreen();
+
+    SetTargetFPS(60);
+
+    GravitySource source = {{800, 500}, 7000};
+    Vector2 cameraOffset = {0, 0};
+    float zoomLevel = 1.0f;
+
+    Particle particles[NUM_PARTICLES];
+
+    bool isPaused = false;
+    bool showDebugInfo = false;
+    double latency = 0.0;
+
+    for (int i = 0; i < NUM_PARTICLES; i++) {
+        float angle = (float)i / NUM_PARTICLES * 2 * PI;
+        float radius = GetRandomValue(100, 400);
+
+        particles[i].pos.x = source.pos.x + cos(angle) * radius;
+        particles[i].pos.y = source.pos.y + sin(angle) * radius;
+
+        particles[i].vel.x = -sin(angle) * 7;
+        particles[i].vel.y = cos(angle) * 7;
+
+        particles[i].density = GetRandomValue(1, 10);
+        particles[i].size = GetRandomValue(1, 2);
+        particles[i].mass = particles[i].density * particles[i].size;
     }
 
+    while (!WindowShouldClose()) {
+      dt = GetFrameTime();  // Get the time elapsed since the last frame
+        // Pan and zoom controls
+        if (IsKeyDown(KEY_RIGHT)) cameraOffset.x += 10;
+        if (IsKeyDown(KEY_LEFT)) cameraOffset.x -= 10;
+        if (IsKeyDown(KEY_DOWN)) cameraOffset.y += 10;
+        if (IsKeyDown(KEY_UP)) cameraOffset.y -= 10;
+        if (IsKeyDown(KEY_W)) {
+            zoomLevel *= 1.01f;
+            cameraOffset.x *= 1.01f;
+            cameraOffset.y *= 1.01f;
+        }
+        if (IsKeyDown(KEY_S)) {
+            zoomLevel /= 1.01f;
+            cameraOffset.x /= 1.01f;
+            cameraOffset.y /= 1.01f;
+        }
 
-    float dt;  // Time step
-    float totalTime = 0.0f;  // Total simulation time
+        if (IsKeyPressed(KEY_P)) {
+            isPaused = !isPaused;
+        }
 
+        if (IsKeyPressed(KEY_I)) {
+            showDebugInfo = !showDebugInfo;
+        }
 
-    int main() {
-        InitWindow(1920, 1080, "2D Gravity Simulation");
-        SetTargetFPS(60);
+        double startTime = GetTime();
 
-        Camera2D camera = {
-            .offset = cameraOffset,
-            .target = { GetScreenWidth()/2, GetScreenHeight()/2 },
-            .rotation = 0.0f,
-            .zoom = zoom  // <-- set the initial zoom here
-        };
+        BeginDrawing();
 
-
-        InitializeParticles();
-
-        while (!WindowShouldClose()) {
-            if (IsKeyPressed(KEY_P)) paused = !paused;
-            if (IsKeyPressed(KEY_I)) showInfo = !showInfo;
-
-            if (IsKeyDown(KEY_RIGHT)) camera.offset.x -= 10;
-            if (IsKeyDown(KEY_LEFT)) camera.offset.x += 10;
-            if (IsKeyDown(KEY_UP)) camera.offset.y += 10;
-            if (IsKeyDown(KEY_DOWN)) camera.offset.y -= 10;
-
-            if (IsKeyDown(KEY_W)) camera.zoom += 0.001f;
-            if (IsKeyDown(KEY_S)) camera.zoom -= 0.001f;
-
-
-        
-
-            if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
-                Vector2 mousePosScreen = GetMousePosition();
-                Vector2 mousePosWorld = GetScreenToWorld2D(mousePosScreen, camera);
-                
-                selectedParticle = NULL; // Reset selectedParticle
-                
-                if (followSelectedParticle) {
-                    followSelectedParticle = false; // Disable following if a particle is currently being followed
-                } else {
-                    for (int i = 0; i < NUM_PARTICLES; i++) {
-                        float distance = Vector2Distance(mousePosWorld, particles[i].position);
-                        if (distance <= particles[i].radius) {
-                            selectedParticle = &particles[i];
-                            followSelectedParticle = true; // Enable following
-                            break;
-                        }
-                    }
-                }
-            }
+        ClearBackground(BLACK);
 
 
-            int fps = GetFPS();
-            if (fps != 0) {
-                dt = 1.0f / fps;
-            } else {
-                dt = 0;
-            }
-
-            if (!paused) {
-                totalTime += dt;
-                UpdateParticles();
-            }
-
-
-            if (followSelectedParticle && selectedParticle) {
-                camera.target = selectedParticle->position;
-                camera.offset = (Vector2){ GetScreenWidth() / 2, GetScreenHeight() / 2 };
-            }
-
-
-
-            BeginDrawing();
-            ClearBackground(BLACK);
-        
-            BeginMode2D(camera);
-            
+        if (!isPaused) {
+            simTime += dt;  
             for (int i = 0; i < NUM_PARTICLES; i++) {
-                if (particles[i].active) {
-                DrawCircleV(particles[i].position, particles[i].radius, particles[i].color);
-                }
-                
+                updatePhysics(&particles[i], &source, dt);
             }
-            
-            EndMode2D();
-
-            DrawText(TextFormat("t = %.2f s", totalTime), GetScreenWidth() - 150, GetScreenHeight() - 50, 20, RAYWHITE);
-
-            
-            if (showInfo) {
-                DrawFPS(10, 12);
-                DrawText(TextFormat("Latency: %f ms", GetFrameTime()*1000), 10, 30, 20, RAYWHITE);
-                DrawText(paused ? "Simulation: PAUSED" : "Simulation: RUNNING", 10, 60, 20, RAYWHITE);
-                DrawText("Color Mode: VELOCITY", 10, 90, 20, RAYWHITE);
-            }
-
-            if (selectedParticle) {
-                DrawText(TextFormat("Speed: %.2f km/s", Vector2Length(selectedParticle->velocity)), GetScreenWidth() - 300, 12, 20, RAYWHITE);
-                DrawText(TextFormat("Mass: %.2f kg", selectedParticle->mass), GetScreenWidth() - 300, 40, 20, RAYWHITE);
-                DrawText(TextFormat("Size: %.2f km", selectedParticle->radius), GetScreenWidth() - 300, 70, 20, RAYWHITE);
-                DrawText(TextFormat("Name: %s", selectedParticle->name), GetScreenWidth() - 300, 100, 20, RAYWHITE); // Display name
-            }
-            
-
-            EndDrawing();
         }
 
-        CloseWindow();
-        return 0;
+        // Moved this out of the if (!isPaused) block
+        for (int i = 0; i < NUM_PARTICLES; i++) {
+            renderParticle(&particles[i], cameraOffset, zoomLevel);
+        }
+
+        renderGravitySource(&source, cameraOffset, zoomLevel);
+
+        double endTime = GetTime();
+        latency = (endTime - startTime) * 1000;
+
+        char debugText[100];
+        if (showDebugInfo) {
+            sprintf(debugText, "FPS: %d", GetFPS());
+            DrawText(debugText, 10, 10, 20, WHITE);
+
+            sprintf(debugText, "Latency: %.2f ms", latency);
+            DrawText(debugText, 10, 40, 20, WHITE);
+
+            sprintf(debugText, "Time Step: %.5f s", dt);
+            DrawText(debugText, 10, 70, 20, WHITE);
+
+            sprintf(debugText, "N =  %d ",NUM_PARTICLES);
+            DrawText(debugText, 10, 100, 20, WHITE);
+
+            sprintf(debugText, "Paused: %s", isPaused ? "True" : "False");
+            DrawText(debugText, 10, 130, 20, WHITE);
+
+            sprintf(debugText, "t = %.2f s", simTime);
+            DrawText(debugText, screenWidth - 100, screenHeight - 30, 20, WHITE);
+        }
+
+        EndDrawing();
     }
+
+    CloseWindow();
+
+    return 0;
+}
