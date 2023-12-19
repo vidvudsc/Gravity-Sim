@@ -6,6 +6,7 @@
 #define NUM_PARTICLES 1000
 #define G_CONST 1
 
+
 typedef struct {
     Vector2 pos;
     Vector2 vel;
@@ -14,11 +15,25 @@ typedef struct {
     Color color;
 } Particle;
 
+float CalculateParticleSize(float mass) {
+    return sqrtf(mass); // Non-linear mapping of mass to size
+}
+
+void InitializeParticles(Particle particles[]) {
+    for (int i = 0; i < NUM_PARTICLES; i++) {
+        particles[i].pos = (Vector2){GetRandomValue(0, 1920), GetRandomValue(0, 1080)};
+        particles[i].vel = (Vector2){GetRandomValue(-50, 50) / 10.0f, GetRandomValue(-50, 50) / 10.0f};
+        particles[i].mass = GetRandomValue(1, 10);
+        particles[i].size = CalculateParticleSize(particles[i].mass);
+    }
+}
+
 void renderParticle(Particle *particle, Vector2 offset, float zoom) {
-    float speed = sqrt(particle->vel.x * particle->vel.x + particle->vel.y * particle->vel.y);
+    float speed = Vector2Length(particle->vel);
     particle->color = ColorFromHSV(speed, 1.0f, 1.0f);
     DrawCircleV((Vector2){(particle->pos.x - offset.x) * zoom, (particle->pos.y - offset.y) * zoom}, particle->size * zoom, particle->color);
 }
+
 
 void updatePhysics(Particle particles[], float dt) {
     for (int i = 0; i < NUM_PARTICLES; i++) {
@@ -64,23 +79,24 @@ int main(void) {
     double latency = 0.0;
     bool showDebugInfo = false;
 
-    // Initialize particles
-    for (int i = 0; i < NUM_PARTICLES; i++) {
-        particles[i].pos = (Vector2){GetRandomValue(0, screenWidth), GetRandomValue(0, screenHeight)};
-        particles[i].vel = (Vector2){GetRandomValue(-50, 50) / 10.0f, GetRandomValue(-50, 50) / 10.0f};
-        particles[i].mass = GetRandomValue(1, 10);
-        particles[i].size = GetRandomValue(1, 3);
-    }
+    InitializeParticles(particles);
 
     Vector2 lastMousePos = GetMousePosition();
 
     while (!WindowShouldClose()) {
-        float dt = GetFrameTime();
+        float baseDt = GetFrameTime();
+
+
+        // Handle simulation pause
+        if (IsKeyPressed(KEY_P)) {
+            isPaused = !isPaused;
+        }
+
 
         // Update simulation
         if (!isPaused) {
-            updatePhysics(particles, dt);
-            simTime += dt;
+            updatePhysics(particles, baseDt);
+            simTime += baseDt;
         }
 
         // Handle panning and zooming
@@ -114,7 +130,7 @@ int main(void) {
             sprintf(debugText, "Latency: %.2f ms", latency);
             DrawText(debugText, 10, 40, 20, WHITE);
 
-            sprintf(debugText, "Time Step: %.5f s", dt);
+            sprintf(debugText, "Time Step: %.5f s", baseDt);
             DrawText(debugText, 10, 70, 20, WHITE);
 
             sprintf(debugText, "N =  %d", NUM_PARTICLES);
